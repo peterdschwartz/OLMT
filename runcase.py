@@ -49,6 +49,8 @@ parser.add_option("--model", dest="mymodel", default='', \
                   help = 'Model to use (ELM,CLM5)')
 parser.add_option("--monthly_metdata", dest="monthly_metdata", default = '', \
                   help = "File containing met data (cpl_bypass only)")
+parser.add_option("--namelist_file",  dest="namelist_file", default='', \
+                  help="File containing custom namelist options for user_nl_clm")
 parser.add_option("--ilambvars", dest="ilambvars", default=False, \
                  action="store_true", help="Write special outputs for diagnostics")
 parser.add_option("--dailyvars", dest="dailyvars", default=False, \
@@ -59,6 +61,8 @@ parser.add_option("--point_list", dest="point_list", default='', \
                   help = 'File containing list of points to run')
 parser.add_option("--pft", dest="mypft", default=-1, \
                   help = 'Use this PFT for all gridcells')
+parser.add_option("--site_forcing", dest="site_forcing", default='', \
+                  help = '6-character FLUXNET code for forcing data')
 parser.add_option("--site", dest="site", default='', \
                   help = '6-character FLUXNET code to run (required)')
 parser.add_option("--sitegroup", dest="sitegroup", default="AmeriFlux", \
@@ -224,6 +228,8 @@ parser.add_option("--surffile", dest="surffile", default="", \
                   help = 'Surface file to use')
 parser.add_option("--domainfile", dest="domainfile", default="", \
                   help = 'Domain file to use')
+parser.add_option("--fates_hydro", dest="fates_hydro", default=False, action="store_true", \
+                  help = 'Set fates hydro to true')
 parser.add_option("--fates_paramfile", dest="fates_paramfile", default="", \
                   help = 'Fates parameter file to use')
 parser.add_option("--add_temperature", dest="addt", default=0.0, \
@@ -250,6 +256,11 @@ parser.add_option("--walltime", dest="walltime", default=6, \
                   help = "desired walltime for each job (hours)")
 parser.add_option("--lai", dest="lai", default=-999, \
                   help = 'Set constant LAI (SP mode only)')
+#Added to control gpu compiler flags
+parser.add_option("--pgi_acc", dest="pgi_acc", default=False, \
+        help="compile pgi openACC to target gpu", action="store_true")
+
+
 (options, args) = parser.parse_args()
 
 #-------------------------------------------------------------------------------
@@ -287,6 +298,8 @@ elif ('edison' in options.machine):
     ppn=24
 elif ('anvil' in options.machine):
     ppn=36
+elif ('compy' in options.machine):
+    ppn=40
 
 PTCLMdir = os.getcwd()
 
@@ -494,10 +507,11 @@ if (options.rmold):
 mysimyr=1850
 if ('1850' not in compset and '20TR' not in compset):
     mysimyr=2000
+print "creating makepointdata command"
 
 if (options.nopointdata == False):
     ptcmd = 'python makepointdata.py --ccsm_input '+options.ccsm_input+ \
-        ' --lat_bounds '+options.lat_bounds+' --lon_bounds '+ \
+        ' --keep_duplicates --lat_bounds '+options.lat_bounds+' --lon_bounds '+ \
         options.lon_bounds+' --mysimyr '+str(mysimyr)+' --model '+options.mymodel
     if (options.metdir != 'none'):
         ptcmd = ptcmd + ' --metdir '+options.metdir
@@ -567,7 +581,13 @@ if (options.nopointdata == False):
 
 #get site year information
 sitedatadir = os.path.abspath(PTCLMfiledir)
-os.chdir(sitedatadir)
+if (options.machine == 'excl'):
+    os.chdir(sitedatadir+'/PTCLM_sitedata')
+else:
+    os.chdir(sitedatadir)
+
+print('current working directory is:    '+os.getcwd() )
+
 if (isglobal == False):
     AFdatareader = csv.reader(open(options.sitegroup+'_sitedata.txt',"rb"))
     for row in AFdatareader:
@@ -611,7 +631,7 @@ else:
                 startyear = 1973
         else:
             endyear   = 1972
-
+ptstr=''
 if (isglobal == False):
     ptstr = str(numxpts)+'x'+str(numypts)+'pt'
 os.chdir(csmdir+'/cime/scripts')
@@ -637,11 +657,14 @@ else:
       print('humhol_dist = 1.0m')
       print('qflx_h2osfc_surfrate = 1.0e-7')
       print('setting rsub_top_globlmax = 1.2e-5')
-      os.system('ncap -O -s "humhol_ht = br_mr*0+0.15" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
-      os.system('ncap -O -s "hum_frac = br_mr*0+0.64" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
-      os.system('ncap -O -s "humhol_dist = br_mr*0+1.0" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
-      os.system('ncap -O -s "qflx_h2osfc_surfrate = br_mr*0+1.0e-7" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
-      os.system('ncap -O -s "rsub_top_globalmax = br_mr*0+1.2e-5" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
+      myncap = 'ncap'
+      if ('compy' in options.machine):
+        myncap='ncap2'
+      os.system(myncap+' -O -s "humhol_ht = br_mr*0+0.15" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
+      os.system(myncap+' -O -s "hum_frac = br_mr*0+0.64" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
+      os.system(myncap+' -O -s "humhol_dist = br_mr*0+1.0" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
+      os.system(myncap+' -O -s "qflx_h2osfc_surfrate = br_mr*0+1.0e-7" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
+      os.system(myncap+' -O -s "rsub_top_globalmax = br_mr*0+1.2e-5" '+tmpdir+'/clm_params.nc '+tmpdir+'/clm_params.nc')
 
 os.system('chmod u+w ' +tmpdir+'/clm_params.nc')
 if (options.parm_file != ''):
@@ -719,19 +742,20 @@ elif (options.exit_spinup):
     options.run_n = 1
 
 #create new case
-cmd = './create_newcase --case '+casename+' --mach '+options.machine+' --compset '+ \
+cmd = './create_newcase --case '+casedir+' --mach '+options.machine+' --compset '+ \
 	   options.compset+' --res '+options.res+' --mpilib '+ \
-           options.mpilib+' > create_newcase.log'+' --walltime '+str(options.walltime)+ \
-          ':00:00'
+           options.mpilib+' --walltime '+str(options.walltime)+ \
+          ':00:00 '+'--handle-preexisting-dirs u'
 if (options.mymodel == 'CLM5'):
    cmd = cmd+' --run-unsupported'
 if (options.project != ''):
    cmd = cmd+' --project '+options.project
 if (options.compiler != ''):
    cmd = cmd+' --compiler '+options.compiler
-resut = os.system(cmd)
+cmd = cmd+' > create_newcase.log'
+result = os.system(cmd)
 
-if (os.path.isdir(casename)):
+if (os.path.isdir(casedir)):
     print(casename+' created.  See create_newcase.log for details')
     os.system('mv create_newcase.log '+casename)
 else:
@@ -739,14 +763,22 @@ else:
     sys.exit(1)
 
 os.chdir(casedir)
+print "Building the environment, chdir to " + casedir
 
 #env_build
 result = os.system('./xmlchange SAVE_TIMING=FALSE')
 result = os.system('./xmlchange EXEROOT='+exeroot)
+
 if (options.mymodel == 'ELM'):
     result = os.system('./xmlchange MOSART_MODE=NULL')
-#if (options.debug):
-#    result = os.system('./xmlchange DEBUG=TRUE')
+
+if (options.debug):
+    print "Turning on debug settings"
+    result = os.system('./xmlchange DEBUG=TRUE')
+else:
+    print "no debug!"
+    result = os.system('./xmlchange DEBUG=FALSE')
+
 
 #clm 4_5 cn config options
 #clmcn_opts = "'-phys clm4_5 -cppdefs -DMODAL_AER'"
@@ -827,9 +859,15 @@ if ('20TR' in compset):
     if (options.run_startyear == -1):
         os.system('./xmlchange RUN_STARTDATE=1850-01-01')
     
-#no PIO on oic
-#if ('oic' in options.machine or 'eos' in options.machine or 'edison' in options.machine):
-#os.system('./xmlchange PIO_TYPENAME=netcdf')
+#No pnetcdf for small cases on compy
+if ('compy' in options.machine and int(options.np) < 80):
+  os.system('./xmlchange PIO_TYPENAME=netcdf')
+
+#Ensure PIO_TYPENAME is netcdf not pnetcdf
+if (options.machine == 'excl'):
+    os.system('./xmlchange PIO_TYPENAME=netcdf')
+    os.system('./xmlquery PIO_TYPENAME')
+
 
 comps = ['ATM','LND','ICE','OCN','CPL','GLC','ROF','WAV']
 for c in comps:
@@ -876,6 +914,19 @@ for i in range(1,int(options.ninst)+1):
         elif (i < 1000):
             output = open("user_nl_clm_0"+str(i),'w')
     output.write('&clm_inparm\n')
+
+    if (options.namelist_file != ''):
+      #First assume located in OLMT folder:
+      if (os.path.isfile(PTCLMdir+'/'+options.namelist_file)):
+        namelist_in = open(PTCLMdir+'/'+options.namelist_file,'r')
+      elif (os.path.isfile(options.namelist_file)):
+        namelist_in = open(options.namelist_file,'r')
+      else: 
+        print('Error:  namelist_file does not exist.  Aborting')
+        sys.exit(1)
+      for s in namelist_in:
+        output.write(s)
+      namelist_in.close()
 
     #history file options
     #outputs for SPRUCE MiP and Jiafu's diagnostics code:
@@ -1089,6 +1140,8 @@ for i in range(1,int(options.ninst)+1):
     output.write(" paramfile = '"+rundir+"/clm_params.nc'\n")
     if ('ED' in compset and options.fates_paramfile != ''):
       output.write(" fates_paramfile = '"+options.fates_paramfile+"'\n")
+    if ('ED' in compset and options.fates_hydro):
+      output.write(" use_fates_planthydro = .true.\n")
 
     if ('RD' in compset or 'ECA' in compset):
         #soil order parameter file
@@ -1126,9 +1179,13 @@ for i in range(1,int(options.ninst)+1):
         if ('ECA' in compset):
             output.write(" nyears_ad_carbon_only = 0\n")
             output.write(" spinup_mortality_factor = 1\n")
+        elif (options.c_only):
+            output.write(" nyears_ad_carbon_only = 0\n")
+            output.write(" spinup_mortality_factor = 10\n")
         else:
             output.write(" nyears_ad_carbon_only = 25\n")
             output.write(" spinup_mortality_factor = 10\n")
+    
     if (cpl_bypass):
         if (use_reanalysis):
             if (options.cruncepv8):
@@ -1152,6 +1209,8 @@ for i in range(1,int(options.ninst)+1):
                     output.write(" metdata_bypass = '"+options.ccsm_input+"/atm/datm7/" \
                          +"atm_forcing.datm7.cruncep_qianFill.0.5d.V5.c140715/cpl_bypass_full'\n")
             elif (options.gswp3):
+                print "Using GSWP3!"
+                
                 if (options.livneh):
                     output.write(" metdata_type = 'gswp3_livneh'\n")
                     output.write(" metdata_bypass = '"+options.ccsm_input+"/atm/datm7/" \
@@ -1163,7 +1222,8 @@ for i in range(1,int(options.ninst)+1):
                 else:
                     output.write(" metdata_type = 'gswp3'\n")
                     output.write(" metdata_bypass = '"+options.ccsm_input+"/atm/datm7/" \
-                          +"/atm_forcing.datm7.GSWP3.0.5d.v2.c180716/cpl_bypass_full'\n")
+                            +"1x1pt_US-Brw/cpl_bypass_GSWP3'\n") 
+                          #+"/atm_forcing.datm7.GSWP3.0.5d.v2.c180716/cpl_bypass_full'\n")
 #                         +"atm_forcing.datm7.GSWP3.0.5d.v1.c170516/cpl_bypass_full'\n")
             elif (options.princeton):
                 if (options.livneh):
@@ -1184,9 +1244,13 @@ for i in range(1,int(options.ninst)+1):
                           +"atm_forcing.cpl.CBGC1850S.ne30.c181011/cpl_bypass_full'\n")
 #                         +"atm_forcing.cpl.WCYCL1850S.ne30.c171204/cpl_bypass_full'\n")
         else:
+            if (options.site_forcing == ''):
+              options.site_forcing=options.site
+            if (ptstr == ''):
+              ptstr='1x1pt'
             output.write("metdata_type = 'site'\n")
             output.write(" metdata_bypass = '"+options.ccsm_input+"/atm/datm7/" \
-                             +"CLM1PT_data/"+ptstr+"_"+options.site+"/'\n")
+                             +"CLM1PT_data/"+ptstr+"_"+options.site_forcing+"/'\n")
         if (options.monthly_metdata != ''):
             output.write(" metdata_biases = '"+options.monthly_metdata+"'\n")
         if (options.co21850):
@@ -1210,6 +1274,8 @@ for i in range(1,int(options.ninst)+1):
     output.close()
 
 #configure case
+#if (isglobal):
+os.system("./xmlchange -id BATCH_SYSTEM --val none")
 if (options.no_config == False):
     print 'Running case.setup'
     result = os.system('./case.setup > case_setup.log')
@@ -1238,22 +1304,37 @@ for s in infile:
        outfile.write(stemp)
     else:
        outfile.write(s)
+
+
+
 infile.close()
 outfile.close()
 os.system('mv Macros.make.tmp Macros.make')
 
-infile  = open("./Macros.cmake")
-outfile = open("./Macros.cmake.tmp",'a')
+if (options.mymodel == 'ELM'):
+  infile  = open("./Macros.cmake")
+  outfile = open("./Macros.cmake.tmp",'a')
 
-for s in infile:
+  for s in infile:
     if ('CPPDEFS' in s and cpl_bypass):
-       stemp = s[:-3]+' -DCPL_BYPASS")\n'
-       outfile.write(stemp)
+        print "adding cpl_bypass flag"
+        stemp = s[:-3]+' -DCPL_BYPASS ")\n'
+        outfile.write(stemp) 
     else:
        outfile.write(s)
-infile.close()
-outfile.close()
-os.system('mv Macros.cmake.tmp Macros.cmake')
+  infile.close()
+  outfile.close()
+  os.system('mv Macros.cmake.tmp Macros.cmake')
+
+#add GPU flags to FFLAGS 
+#if(options.pgi_acc):
+#    print "adding gpu flags"
+#    outfile = open("./Macros.cmake",'a')
+#    stemp = 'set(FFLAGS "${FFLAGS} -acc -Minfo=accel -ta=tesla:deepcopy")\n'
+#    outfile.write(stemp)
+#    stemp = 'set(LDFLAGS "${LDFLAGS} -acc -Minfo=accel -ta=tesla:deepcopy")\n'
+#    outfile.write(stemp)
+#    outfile.close()
 
 
 #copy sourcemods
@@ -1372,7 +1453,11 @@ os.system('cp '+PTCLMdir+'/temp/domain.nc '+PTCLMdir+'/temp/surfdata.nc  '+ \
 if ('20TR' in compset and options.nopftdyn == False):
     os.system('cp '+PTCLMdir+'/temp/surfdata.pftdyn.nc '+runroot+'/'+casename+'/run/')
 
+
 #submit job if requested
+if(options.machine == 'excl') :
+    options.no_submit == True
+
 if (options.no_submit == False and int(options.mc_ensemble) < 0 and options.ensemble_file == ''):
 # Ming, 01/22/16, use a csh script instead of the perl script to submit the job.
 #    os.system("qsub "+casename+".run")
@@ -1456,15 +1541,23 @@ if (options.ensemble_file != '' or int(options.mc_ensemble) != -1):
     num=0
     #Launch ensemble if requested 
     mysubmit_type = 'qsub'
-    if ('cori' in options.machine or options.machine == 'edison'):
+    if ('compy' in options.machine or 'cori' in options.machine or options.machine == 'edison'):
         mysubmit_type = 'sbatch'
+    
+    if(options.machine == 'excl'):
+        mysubmit_type = ''
+
+
     if (options.ensemble_file != ''):
         os.system('mkdir -p '+PTCLMdir+'/scripts/'+myscriptsdir)
         output_run  = open(PTCLMdir+'/scripts/'+myscriptsdir+'/ensemble_run_'+casename+'.pbs','w')
         timestr=str(int(float(options.walltime)))+':'+str(int((float(options.walltime)- \
                                      int(float(options.walltime)))*60))+':00'
         if (options.debug):
+#
            timestr='00:30:00'
+           if ('compy' in options.machine):
+             timestr='02:00:00'
         output_run.write("#!/bin/csh -f\n")
         if (mysubmit_type == 'qsub'):
             output_run.write('#PBS -l walltime='+timestr+'\n')
@@ -1494,7 +1587,8 @@ if (options.ensemble_file != '' or int(options.mc_ensemble) != -1):
                 output_run.write('#SBATCH --constraint=haswell\n')
               if ('knl' in options.machine):
                 output_run.write('#SBATCH --constraint=knl\n')
-
+            if ('compy' in options.machine and options.debug):
+              output_run.write('#SBATCH --qos=short\n')
         output_run.write("\n")
         if (options.machine == 'eos'):
             output_run.write('source $MODULESHOME/init/csh\n')
@@ -1522,40 +1616,44 @@ if (options.ensemble_file != '' or int(options.mc_ensemble) != -1):
             output_run.write('module unload scipy\n')
             output_run.write('module unload numpy\n')
             output_run.write('module load cray-netcdf\n')
-            output_run.write('module load python/2.7-anaconda\n')
+            output_run.write('module load python/2.7-anaconda-5.2\n')
             output_run.write('module load nco\n')
 
         output_run.write('cd '+PTCLMdir+'\n')
         cnp = 'True'
+        
         if (options.cn_only or options.c_only):
             cnp= 'False'
+        
         if ('oic' in options.machine or 'cades' in options.machine):
             mpicmd = 'mpirun'
             if ('cades' in options.machine):
                 mpicmd = '/software/dev_tools/swtree/cs400_centos7.2_pe2016-08/openmpi/1.10.3/centos7.2_gnu5.3.0/bin/mpirun'
+            
             cmd = mpicmd+' -np '+str(np_total)+' --hostfile $PBS_NODEFILE python manage_ensemble.py ' \
                +'--case '+casename+' --runroot '+runroot+' --n_ensemble '+str(nsamples)+' --ens_file '+ \
                options.ensemble_file+' --exeroot '+exeroot+' --parm_list '+options.parm_list+' --cnp '+cnp + \
                ' --site '+options.site
+        
         elif (('titan' in options.machine or 'eos' in options.machine) and int(options.ninst) == 1):
             cmd = 'aprun -n '+str(np_total)+' python manage_ensemble.py ' \
                +'--case '+casename+' --runroot '+runroot+' --n_ensemble '+str(nsamples)+' --ens_file '+ \
                options.ensemble_file+' --exeroot '+exeroot+' --parm_list '+options.parm_list+' --cnp '+cnp + \
                ' --site '+options.site
-        elif ('cori' in options.machine or 'edison' in options.machine):
+        elif ('anvil' in options.machine or 'compy' in options.machine or 'cori' in options.machine):
             cmd = 'srun -n '+str(np_total)+' python manage_ensemble.py ' \
                +'--case '+casename+' --runroot '+runroot+' --n_ensemble '+str(nsamples)+' --ens_file '+ \
                options.ensemble_file+' --exeroot '+exeroot+' --parm_list '+options.parm_list+' --cnp '+cnp + \
                ' --site '+options.site
-        elif ('anvil' in options.machine):
-            cmd = 'mpiexec -n '+str(np_total)+' python manage_ensemble.py ' \
-               +'--case '+casename+' --runroot '+runroot+' --n_ensemble '+str(nsamples)+' --ens_file '+ \
-               options.ensemble_file+' --exeroot '+exeroot+' --parm_list '+options.parm_list+' --cnp '+cnp + \
-               ' --site '+options.site
+        elif('excl' in options.machine):
+            mpicmd = os.environ['MPI_ROOT']+'/bin/mpirun'
+            print 'Using mpi command:    ', mpicmd
 
         if (options.postproc_file != ''): 
             cmd = cmd + ' --postproc_file '+options.postproc_file
         output_run.write(cmd+'\n')
         output_run.close()
+
         if (options.no_submit == False):
             os.system(mysubmit_type+' '+PTCLMdir+'/scripts/'+myscriptsdir+'/ensemble_run_'+casename+'.pbs')
+

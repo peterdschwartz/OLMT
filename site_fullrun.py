@@ -23,6 +23,8 @@ parser.add_option("--ccsm_input", dest="ccsm_input", \
                   help = "input data directory for CESM (required)")
 parser.add_option("--clean_build", action="store_true", default=False, \
                   help="Perform a clean build")
+parser.add_option("--namelist_file", dest="namelist_file", default='', \
+                  help="File containing custom namelist options for user_nl_clm")
 parser.add_option("--model_root", dest="csmdir", default='', \
                   help = "base CESM directory")
 parser.add_option("--compiler", dest="compiler", default = '', \
@@ -41,6 +43,8 @@ parser.add_option("--hist_nhtfrq_trans", dest="hist_nhtfrq", default="-24", \
                   help = 'output file timestep (transient only)')
 parser.add_option("--humhol", dest="humhol", default=False, \
                   help = 'Use hummock/hollow microtopography', action="store_true")
+parser.add_option("--lai", dest="lai", default=-999, \
+                  help = 'Set constant LAI (SP mode only)')
 parser.add_option("--machine", dest="machine", default = '', \
                   help = "machine to use")
 parser.add_option("--mpilib", dest="mpilib", default="mpi-serial", \
@@ -116,12 +120,16 @@ parser.add_option("--makemetdata", action="store_true", dest="makemet", default=
                     help="generate site meteorology")
 parser.add_option("--cruncep", dest="cruncep", default=False, \
                   action="store_true", help = 'Use CRU-NCEP meteorology')
+parser.add_option("--cruncepv8", dest="cruncepv8", default=False, \
+                  action="store_true", help = 'Use CRU-NCEP meteorology')
 parser.add_option("--gswp3", dest="gswp3", default=False, \
                   action="store_true", help = 'Use GSWP3 meteorology')
 parser.add_option("--princeton", dest="princeton", default=False, \
                   action="store_true", help = 'Use Princeton meteorology')
 parser.add_option("--surfdata_grid", dest="surfdata_grid", default=False, \
                   help = 'Use gridded surface data instead of site data', action="store_true")
+parser.add_option("--surffile", dest="surffile", default='', \
+                  help = 'Use specified surface data file')
 parser.add_option("--siteparms",dest = "siteparms", default=False, \
                   action="store_true", help = 'Use default PFT parameters')
 parser.add_option("--cpl_bypass", dest = "cpl_bypass", default=False, \
@@ -129,6 +137,8 @@ parser.add_option("--cpl_bypass", dest = "cpl_bypass", default=False, \
 parser.add_option("--spinup_vars", dest = "spinup_vars", default=False, \
                   help = "limit output variables for spinup", action="store_true")
 parser.add_option("--trans_varlist", dest = "trans_varlist", default='', help = "Transient outputs")
+parser.add_option("--c_only", dest="c_only", default=False, \
+                  help='Carbon only (saturated N&P)', action ="store_true")
 parser.add_option("--cn_only", dest="cn_only", default=False, \
                   help='Carbon/Nitrogen only (saturated P)', action ="store_true")
 parser.add_option("--ensemble_file", dest="ensemble_file", default='', \
@@ -161,14 +171,17 @@ parser.add_option("--mod_parm_file_P", dest="mod_parm_file_P", default='', \
 parser.add_option("--walltime", dest="walltime", default=6, \
                   help = "desired walltime for each job (hours)")
 
+#Added to control gpu compiler flags
+parser.add_option("--pgi_acc", dest="pgi_acc", default=False, \
+        help="compile pgi openACC to target gpu", action="store_true")
+
+
 (options, args) = parser.parse_args()
 
 #------------ define function for pbs submission
 
-def submit(fname, project='', submit_type='qsub', job_depend=''):
+def submit(fname, submit_type='qsub', job_depend=''):
     job_depend_flag = ' -W depend=afterok:'
-    if (submit_type == 'sbatch' and project != ''):
-        submit_type = submit_type+' --account '+project
     if ('sbatch' in submit_type):
 	job_depend_flag = ' --dependency=afterok:'
     if (job_depend != '' and submit_type != ''):
@@ -204,6 +217,8 @@ elif (not os.path.exists(options.csmdir)):
      sys.exit(1)
 
 #get machine info if not specified
+npernode=32
+
 if (options.machine == ''):
    hostname = socket.gethostname()
    print 'Machine not specified.  Using hostname '+hostname+' to determine machine'
@@ -227,6 +242,12 @@ if (options.machine == ''):
        print 'Hostname = '+hostname+' and machine not specified.  Assuming anvil'
        options.machine = 'anvil' 
        npernode=36
+   elif ('compy' in hostname):
+       options.machine = 'compy'
+       npernode=40
+   elif ('leconte' in hostname):
+       options.machine = 'excl'
+       npernode=1
    else:
        print 'ERROR in site_fullrun.py:  Machine not specified.  Aborting'
        sys.exit(1)
@@ -241,6 +262,10 @@ elif (options.machine == 'edison' or 'cori' in options.machine):
     ccsm_input = '/project/projectdirs/acme/inputdata'
 elif ('anvil' in options.machine):
     ccsm_input = '/home/ccsm-data/inputdata'
+elif ('compy' in options.machine):
+    ccsm_input = '/compyfs/inputdata/'
+elif ('excl' in options.machine):
+    ccsm_input = '/home/p40/project_e3sm/e3sm-inputdata'
 
 #if (options.compiler != ''):
 #    if (options.machine == 'titan'):
@@ -260,7 +285,7 @@ else:
 
 
 #get start and year of input meteorology from site data file
-PTCLMfiledir = ccsm_input+'/lnd/clm2/PTCLM'
+PTCLMfiledir = ccsm_input+'/lnd/clm2/PTCLM/PTCLM_sitedata'
 fname = PTCLMfiledir+'/'+options.sitegroup+'_sitedata.txt'
 AFdatareader = csv.reader(open(fname, "rt"))
 
@@ -289,6 +314,10 @@ if (options.runroot == '' or (os.path.exists(options.runroot) == False)):
         runroot=os.environ.get('CSCRATCH')+'/acme_scratch/edison/'
     elif ('anvil' in options.machine):
         runroot="/lcrc/group/acme/"+myuser
+        myproject='e3sm'
+    elif ('compy' in options.machine):
+        runroot='/compyfs/'+myuser+'/e3sm_scratch'
+        myproject='e3sm'
     else:
         runroot = csmdir+'/run'
 else:
@@ -332,7 +361,6 @@ if (int(options.mc_ensemble) != -1):
     options.ensemble_file = 'mcsamples_'+options.mycaseid+'_'+str(options.mc_ensemble)+'.txt'
 
 mysites = options.site.split(',')
-npernode = 32
 if (not 'all' in mysites):
   npernode = len(mysites)
 for row in AFdatareader:
@@ -343,9 +371,17 @@ for row in AFdatareader:
             firstsite=site
         site_lat  = row[4]
         site_lon  = row[3]
-        if (options.cruncep or options.gswp3 or options.princeton):
-                startyear = 1901
-                endyear = 1920
+        if (options.cruncepv8 or options.cruncep or options.gswp3 or options.princeton):
+          startyear = 1901
+          endyear = 1920
+          if (options.cruncepv8):
+            endyear_trans=2016
+          elif (options.gswp3):
+            endyear_trans=2014
+          elif (options.princeton):
+            endyear_trans=2012
+          else:
+            endyear_trans=2010
         else:
             startyear = int(row[6])
             endyear   = int(row[7])
@@ -365,9 +401,9 @@ for row in AFdatareader:
         if (options.nyears_transient == -1):
           translen = endyear-1850+1        #length of transient run
 	  if (options.cpl_bypass and (options.cruncep or options.gswp3 or \
-                   options.princeton)):
- 	    translen = min(site_endyear,2010)-1850+1
-
+                   options.princeton or options.cruncepv8)):
+            print(endyear_trans, site_endyear)
+ 	    translen = min(site_endyear,endyear_trans)-1850+1
         #use site parameter file if it exists
         if (options.siteparms):
             if (os.path.exists(PTCLMfiledir+'/parms_'+site)):
@@ -405,6 +441,8 @@ for row in AFdatareader:
             basecmd = basecmd+' --parm_vals '+options.parm_vals
         if (options.clean_build):
             basecmd = basecmd+' --clean_build '
+        if (options.namelist_file != ''):
+            basecmd = basecmd+' --namelist_file '+options.namelist_file
         if (options.metdir !='none'):
             basecmd = basecmd+' --metdir '+options.metdir
         if (options.C13):
@@ -423,6 +461,8 @@ for row in AFdatareader:
             basecmd = basecmd+' --harvmod'
         if (options.humhol):
             basecmd = basecmd+' --humhol'
+        if (float(options.lai) >= 0):
+            basecmd = basecmd+' --lai '+str(options.lai)
         if (options.nopftdyn):
             basecmd = basecmd+' --nopftdyn'
         if (options.no_dynroot):
@@ -433,12 +473,16 @@ for row in AFdatareader:
             basecmd = basecmd+' --vertsoilc'
         if (options.centbgc):
             basecmd = basecmd+' --centbgc'
+        if (options.c_only):
+            basecmd = basecmd+' --c_only'
         if (options.cn_only):
             basecmd = basecmd+' --cn_only'
         if (options.CH4):
             basecmd = basecmd+' --CH4'
         if (options.cruncep):
             basecmd = basecmd+' --cruncep'
+        if (options.cruncepv8):
+            basecmd = basecmd+' --cruncepv8'
         if (options.gswp3):
             basecmd = basecmd+' --gswp3'
         if (options.princeton):
@@ -460,6 +504,8 @@ for row in AFdatareader:
         if (options.addco2 != 0):
             basecmd = basecmd+' --add_co2 '+str(options.addco2)
             basecmd = basecmd+' --startdate_add_co2 '+str(options.sd_addco2)
+        if (options.surffile != ''):
+            basecmd = basecmd+' --surffile '+options.surffile      
         basecmd = basecmd + ' --ng '+str(options.ng)
         basecmd = basecmd + ' --np '+str(options.np)
         basecmd = basecmd + ' --tstep '+str(options.tstep)
@@ -471,11 +517,22 @@ for row in AFdatareader:
         basecmd = basecmd+' --runroot '+runroot
         basecmd = basecmd+' --walltime '+str(options.walltime)
 
+    #Added for gpu
+        if(options.pgi_acc):
+            print "calling runcase.py with pgi_acc"
+            basecmd = basecmd + ' --pgi_acc'
 
-#----------------------- build commands for runCLM.py -----------------------------
+
+
+        if (myproject != ''):
+          basecmd = basecmd+' --project '+myproject
+
+#---------------- build commands for runCLM.py -----------------------------
 
         #ECA or CTC
-        if (options.cn_only):
+        if (options.c_only):
+            nutrients = 'C'
+        elif (options.cn_only):
             nutrients = 'CN'
         else: 
             nutrients = 'CNP'
@@ -561,6 +618,14 @@ for row in AFdatareader:
                 cmd_fnsp = cmd_fnsp+' --exeroot '+ad_exeroot+' --no_build'
             if (options.sp):
                 cmd_fnsp = cmd_fnsp+' --run_startyear '+str(options.run_startyear)
+            if (options.exeroot != ''):
+              if (os.path.isfile(options.exeroot+'/'+myexe) == False):
+                  print 'Error:  '+options.exeroot+' does not exist or does '+ \
+                        'not contain an executable. Exiting'
+                  sys.exit(1)
+              else:
+                ad_exeroot=options.exeroot
+                cmd_fnsp = cmd_fnsp+' --no_build --exeroot '+ad_exeroot
         else:
             cmd_fnsp = basecmd+' --finidat_case '+ad_case+ \
                        ' --finidat_year '+str(int(ny_ad)+1)+' --run_units nyears --run_n '+ \
@@ -610,7 +675,7 @@ for row in AFdatareader:
             #Turn wildfire off in transient simulations (disturbances are known)
             cmd_trns = cmd_trns + ' --nofire'
         #transient phase 2 (CRU-NCEP only, without coupler bypass)
-        if ((options.cruncep or options.gswp3 or options.princeton) and not options.cpl_bypass):
+        if ((options.cruncep or options.cruncepv8 or options.gswp3 or options.princeton) and not options.cpl_bypass):
             basecase=basecase.replace('1850','20TR')+'_phase1'
             thistranslen = site_endyear - 1921 + 1
             cmd_trns2 = basecmd+' --trans2 --finidat_case '+basecase+ \
@@ -697,7 +762,7 @@ for row in AFdatareader:
                         ' --site_new '+site+' --finidat_year '+str(int(ny_fin)+1)+ \
                         ' --nyears '+str(translen)
                  result = os.system(ptcmd)
-            if ((options.cruncep or options.gswp3 or options.princeton) and not options.cpl_bypass):
+            if ((options.cruncep or options.cruncepv8 or options.gswp3 or options.princeton) and not options.cpl_bypass):
                  print('\nSetting up transient case phase 2\n')
                  result = os.system(cmd_trns2)
 
@@ -721,9 +786,14 @@ for row in AFdatareader:
         
         for c in case_list:
             
-            mysubmit_type = 'qsub'
+            if (options.machine != 'excl'): 
+                mysubmit_type = 'qsub'
+            else:
+                mysubmit_type = ''
+
+
             groupnum = sitenum/npernode
-            if ('cori' in options.machine or options.machine == 'edison'):
+            if ('anvil' in options.machine or 'compy' in options.machine or 'cori' in options.machine):
                 mysubmit_type = 'sbatch'
             if ('ubuntu' in options.machine):
                 mysubmit_type = ''
@@ -748,11 +818,13 @@ for row in AFdatareader:
                             timestr = '00:30:00'
                         if (mysubmit_type == 'qsub'):
                             output.write('#PBS -l walltime='+timestr+'\n')
-                            if ('anvil' in options.machine):
-                              output.write('#PBS -q acme\n')
-                              output.write('#PBS -A ACME\n')
                         else:
                             output.write('#SBATCH --time='+timestr+'\n')
+                            if (myproject != ''):
+                                output.write('#SBATCH -A '+myproject+'\n')
+                            if ('anvil' in options.machine):
+                                output.write('#SBATCH --partition=acme-centos6\n')
+                                output.write('#SBATCH --account=condo\n')
                             if ('edison' in options.machine or 'cori' in options.machine):
                                 if (options.debug):
                                     output.write('#SBATCH --partition=debug\n')
@@ -873,8 +945,8 @@ for row in AFdatareader:
                  output2 = open('./scripts/'+myscriptsdir+'/transdiag_'+site+'.csh','w')
                  output.write("cd "+os.path.abspath(".")+'\n')
                  output2.write("cd "+os.path.abspath(".")+'\n')
-                 plotcmd = "python plotcase.py --site "+site+" --compset "+mycompsetcb \
-                          +" --csmdir "+os.path.abspath(runroot)+" --pdf --yend "+str(site_endyear)
+                 plotcmd = "python plotcase.py --site "+ site + " --compset " + mycompsetcb \
+                          + " --csmdir "+ os.path.abspath(runroot) +" --pdf --yend "+str(site_endyear)
                  if (options.compare != ''):
                      plotcmd = plotcmd + ' --case '+mycaseid+','+options.compare
                  else:
@@ -915,7 +987,7 @@ for row in AFdatareader:
             job_depend_run=''    
             for thiscase in cases:
                 job_depend_run = submit('scripts/'+myscriptsdir+'/ensemble_run_'+thiscase+'.pbs',job_depend= \
-                                        job_depend_run, project=myproject, submit_type=mysubmit_type)
+                                        job_depend_run, submit_type=mysubmit_type)
         #else:  #submit single job
         #    job_fullrun = submit('temp/site_fullrun.pbs', submit_type=mysubmit_type)
         sitenum = sitenum+1
@@ -931,5 +1003,5 @@ if (options.ensemble_file == ''):
                 output.write("scp -r ./plots/"+mycaseid+" acme-webserver.ornl.gov:~/www/single_point/plots\n")
             output.close()
             job_depend_run = submit('scripts/'+myscriptsdir+'/'+thiscase+'_group'+str(g)+'.pbs',job_depend= \
-                                    job_depend_run, project=myproject, submit_type=mysubmit_type)
+                                    job_depend_run, submit_type=mysubmit_type)
 

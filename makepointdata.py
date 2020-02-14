@@ -69,7 +69,7 @@ if ('hcru' in options.res):
         surffile_orig = ccsm_input+'/lnd/clm2/surfdata_map/surfdata_360x720cru_16pfts_Irrig_CMIP6_simyr1850_c170824.nc'
     else:
         if (mysimyr == 2000):
-            surffile_orig =  ccsm_input+'/lnd/clm2/surfdata_map/surfdata_360x720cru_simyr2000_c160307.nc'
+            surffile_orig =  ccsm_input+'/lnd/clm2/surfdata_map/surfdata_360x720cru_simyr2000_c180216.nc'
         else:
             #CMIP6 stype (Hurtt v2)
             surffile_orig = ccsm_input+'/lnd/clm2/surfdata_map/surfdata_360x720cru_simyr1850_c180216.nc'
@@ -236,7 +236,7 @@ if (n_grids > 1 and options.site == ''):       #remove duplicate points
               and point_pfts[n] == point_pfts_uniq[m]):
                n_dups = n_dups+1
                is_unique = False
-               point_index.append(m+1)
+               #point_index.append(m+1)
       if (is_unique or options.keep_duplicates):
           xgrid_min_uniq.append(xgrid_min[n])
           ygrid_min_uniq.append(ygrid_min[n])
@@ -659,7 +659,7 @@ if (options.nopftdyn == False):
                 #use time-varying files from gridded file
                 print 'using '+surffile_new+' for 1850 information'
                 nonpft = float(pct_lake_1850[n]+pct_glacier_1850[n]+ \
-                               pct_wetland_1850[n]+pct_urban_1850[n])
+                               pct_wetland_1850[n]+sum(pct_urban_1850[0:3,n]))
                 if (options.mymodel == 'CLM5'):
                     nonpft = nonpft+float(pct_crop_1850[n])
                 sumpft = 0.0
