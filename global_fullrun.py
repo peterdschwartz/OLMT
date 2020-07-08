@@ -158,6 +158,9 @@ parser.add_option("--mod_parm_file_P", dest="mod_parm_file_P", default='', \
                   help = "adding the path to the modified parameter file")
 parser.add_option("--walltime", dest="walltime", default=24, \
                   help = "desired walltime for each job (hours)")
+parser.add_option("--no_build", dest="no_build", default=False, \
+                  help = 'do NOT build CESM', action="store_true")
+
 
 (options, args) = parser.parse_args()
 
@@ -251,6 +254,8 @@ elif ('compy' in options.machine):
     ccsm_input = '/compyfs/inputdata'
 elif (options.machine == 'excl'):
     ccsm_input = '/home/p40/project_e3sm/e3sm-inputdata'
+elif (options.machine == 'summit'):
+    ccsm_input = '/gpfs/alpine/cli115/world-shared/e3sm/inputdata/'
 
 print options.machine
 #default compilers
@@ -470,6 +475,9 @@ if (options.mod_parm_file_P !=''):
     basecmd = basecmd+' --mod_parm_file_P '+options.mod_parm_file_P
 if (options.surffile != ''):
     basecmd = basecmd+' --surffile '+options.surffile
+if (options.no_build):
+    print "not building"
+    basecmd = basecmd+' --no_build'
 basecmd = basecmd + ' --np '+str(options.np)
 basecmd = basecmd + ' --tstep '+str(options.tstep)
 basecmd = basecmd + ' --co2_file '+options.co2_file

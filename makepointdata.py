@@ -321,7 +321,7 @@ for n in range(0,n_grids):
 
 domainfile_new = './temp/domain.nc'
 if (n_grids > 1):
-    os.system('ncrcat '+domainfile_list+' '+domainfile_new)
+    os.system('ncrcat -h'+domainfile_list+' '+domainfile_new)
     os.system('nccopy -u  '+domainfile_new+' '+domainfile_new+'.tmp')
     os.system('ncpdq -O -a ni,nj '+domainfile_new+'.tmp '+domainfile_new)
     #os.system('ncwa -O -a ni -d ni,0,0 '+domainfile_new+'.tmp1 '+domainfile_new+'.tmp2')
@@ -336,7 +336,7 @@ else:
 
 #-------------------- create surface data ----------------------------------
 print('Creating surface data')
-
+print('n_grids: ',n_grids)
 surffile_list = ''
 for n in range(0,n_grids):
     nst = str(100000+n)[1:]
@@ -391,7 +391,7 @@ for n in range(0,n_grids):
             npft = 15
 
         #read file for site-specific PFT information
-        mypft_frac=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        mypft_frac = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
         mypct_sand = 0.0 
         mypct_clay = 0.0
  
@@ -520,7 +520,7 @@ for n in range(0,n_grids):
 surffile_new = './temp/surfdata.nc'
 
 if (n_grids > 1):
-  os.system('ncecat '+surffile_list+' '+surffile_new)
+  os.system('ncecat -h'+surffile_list+' '+surffile_new)
   os.system('rm ./temp/surfdata?????.nc*')
   #remove ni dimension
   os.system('ncwa -O -a lsmlat -d lsmlat,0,0 '+surffile_new+' '+surffile_new+'.tmp')

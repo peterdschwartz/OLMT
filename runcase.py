@@ -148,7 +148,7 @@ parser.add_option("--no_config", dest="no_config", default=False, \
                   help = 'do NOT configure case', action="store_true")
 parser.add_option("--no_build", dest="no_build", default=False, \
                   help = 'do NOT build CESM', action="store_true")
-parser.add_option("--no_submit", dest="no_submit", default=False, \
+parser.add_option("--no_submit", dest="no_submit", default=True, \
                   help = 'do NOT submit CESM to queue', action="store_true")
 parser.add_option("--align_year", dest="align_year", default=-999, \
                   help = 'Alignment year (transient run only)')
@@ -507,7 +507,7 @@ if (options.rmold):
 mysimyr=1850
 if ('1850' not in compset and '20TR' not in compset):
     mysimyr=2000
-print "creating makepointdata command"
+print("creating makepointdata command")
 
 if (options.nopointdata == False):
     ptcmd = 'python makepointdata.py --ccsm_input '+options.ccsm_input+ \
@@ -573,12 +573,17 @@ if (options.nopointdata == False):
         #Clean up
         os.system('rm makepointdata_rhea*') 
     else:
-        print ptcmd
+        print("ptcmd:")
+        print(ptcmd)
+        st = time.time()
+
         result = os.system(ptcmd)
         if (result > 0):
             print ('PointCLM:  Error creating point data.  Aborting')
             sys.exit(1)
+        sto = time.time()
 
+        print("time for makeptdata cmd:",sto-st,'secs')
 #get site year information
 sitedatadir = os.path.abspath(PTCLMfiledir)
 if (options.machine == 'excl'):

@@ -8,7 +8,7 @@ size=comm.Get_size()
 
 
 #output_dir = '/lustre/or-hydra/cades-ccsi/scratch/xyk/TESTRD4'
-output_dir = '/lustre/or-hydra/cades-ccsi/scratch/dmricciuto/'
+#output_dir = '/lustre/or-hydra/cades-ccsi/scratch/dmricciuto/'
 
 #sites=['AU-Tum','BR-Sa1','FI-Hyy','FR-Pue','GF-Guy','RU-Cok','RU-Fyo','RU-Sam','US-Blo','US-Ha1','US-PFa','US-SRM','US-UMB','US-Wkg','ZA-Kru']
 #sites=['BR-Sa1','FI-Hyy','GF-Guy','US-Ha1','US-UMB']
