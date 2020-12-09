@@ -257,7 +257,6 @@ elif (options.machine == 'excl'):
 elif (options.machine == 'summit'):
     ccsm_input = '/gpfs/alpine/cli115/world-shared/e3sm/inputdata/'
 
-print options.machine
 #default compilers
 if (options.compiler == ''):
     if (options.machine == 'titan' or options.machine == 'metis'):
@@ -280,7 +279,6 @@ if (options.mpilib == ''):
     elif ('compy' in options.machine):
         options.mpilib = 'impi'
 
-print options.mpilib
 mycaseid   = options.mycaseid
 srcmods    = options.srcmods_loc
 
@@ -300,11 +298,11 @@ if (options.project != ''):
   myproject = options.project
 else: 
   if (os.path.exists(os.environ.get('HOME')+'/.cesm_proj')):
-    print 'Getting project from '+os.environ.get('HOME')+'/.cesm_proj'
+    print('Getting project from '+os.environ.get('HOME')+'/.cesm_proj')
     myinput = open(os.environ.get('HOME')+'/.cesm_proj','r')
     for s in myinput:
         myproject=s[:-1]
-    print 'Project = '+myproject
+    print( 'Project = '+myproject)
  
 #case run and case root directories
 if (options.runroot == ''):
@@ -476,7 +474,7 @@ if (options.mod_parm_file_P !=''):
 if (options.surffile != ''):
     basecmd = basecmd+' --surffile '+options.surffile
 if (options.no_build):
-    print "not building"
+    print ("not building")
     basecmd = basecmd+' --no_build'
 basecmd = basecmd + ' --np '+str(options.np)
 basecmd = basecmd + ' --tstep '+str(options.tstep)
@@ -675,7 +673,7 @@ for c in cases:
         elif (os.path.isfile(caseroot+'/'+c+'/.case.run')):
             input = open(caseroot+'/'+c+'/.case.run')
         else:
-            print 'case.run file not found.  Aborting'
+            print('case.run file not found.  Aborting')
             sys.exit(1)
 
         for s in input:
@@ -780,7 +778,7 @@ for c in cases:
                                  '/'+ad_case+'/run/ --casename '+ad_case+' --restart_year '+ \
                                  str(int(ny_ad)+1)+'\n')
         output.close()
-        if (options.machine != 'excl'):
+        if (options.machine not in ['excl','summit'] ):
             job_depend_run = submit('temp/global_'+c+'_'+str(n)+'.pbs',job_depend=job_depend_run, \
                                     submit_type=mysubmit_type)
         
